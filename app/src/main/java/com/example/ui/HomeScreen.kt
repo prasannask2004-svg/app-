@@ -26,6 +26,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.FavoriteBorder
 import androidx.compose.material.icons.rounded.PlayArrow
@@ -59,6 +60,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import com.example.model.GeminiAiTab
 import com.example.model.MediaAlbum
 import com.example.model.MediaType
 import com.example.model.MediaTrack
@@ -67,11 +69,13 @@ import com.example.ui.components.ArtistCard
 import com.example.ui.components.AuthModal
 import com.example.ui.components.CreatePlaylistModal
 import com.example.ui.components.DolbyBadge
+import com.example.ui.components.GeminiModal
 import com.example.ui.components.GlassCard
 import com.example.ui.components.GlowingOrbsBackground
 import com.example.ui.components.MiniPlayerBar
 import com.example.ui.components.SleepTimerModal
 import com.example.ui.theme.CosmicDarkSurface
+import com.example.ui.theme.CyanAccent
 import com.example.ui.theme.GlassBorderColor
 import com.example.ui.theme.GlassBorderHighlight
 import com.example.ui.theme.PinkAccent
@@ -91,6 +95,7 @@ fun HomeScreen(
     val authSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val sleepSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val playlistSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val geminiSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     Box(
         modifier = modifier
@@ -116,7 +121,8 @@ fun HomeScreen(
                 onSearchChange = { viewModel.setSearchQuery(it) },
                 onLanguageSelect = { viewModel.setSelectedHomeLanguage(it) },
                 onToggleDolby = { viewModel.toggleDolbyAtmos() },
-                onOpenDrawer = { viewModel.togglePlaylistDrawer(true) }
+                onOpenDrawer = { viewModel.togglePlaylistDrawer(true) },
+                onOpenGemini = { viewModel.openGeminiModal() }
             )
 
             // Scrollable Content
@@ -145,6 +151,16 @@ fun HomeScreen(
                             )
                         }
                     }
+                }
+
+                // Gemini AI Music Assistant Banner
+                item {
+                    Spacer(modifier = Modifier.height(18.dp))
+                    GeminiFeatureBanner(
+                        onOpenGeminiStory = { viewModel.openGeminiModal(GeminiAiTab.SONG_STORY) },
+                        onOpenGeminiMood = { viewModel.openGeminiModal(GeminiAiTab.MOOD_DJ) },
+                        currentTrackTitle = uiState.currentTrack?.title
+                    )
                 }
 
                 // Section 2: User Custom Playlists
@@ -388,6 +404,22 @@ fun HomeScreen(
                 onDismiss = { viewModel.toggleCreatePlaylistModal(false) }
             )
         }
+
+        if (uiState.isGeminiModalOpen) {
+            GeminiModal(
+                sheetState = geminiSheetState,
+                activeTab = uiState.geminiActiveTab,
+                aiState = uiState.geminiAiState,
+                currentTrack = uiState.currentTrack,
+                promptText = uiState.geminiPromptText,
+                onTabSelect = { viewModel.setGeminiActiveTab(it) },
+                onPromptChange = { viewModel.setGeminiPromptText(it) },
+                onSendPrompt = { viewModel.generateMoodDj(it) },
+                onRefreshStory = { viewModel.generateTrackStory() },
+                onRetry = { viewModel.retryLastGeminiRequest() },
+                onDismiss = { viewModel.closeGeminiModal() }
+            )
+        }
     }
 }
 
@@ -403,7 +435,8 @@ private fun HomeTopHeader(
     onSearchChange: (String) -> Unit,
     onLanguageSelect: (String) -> Unit,
     onToggleDolby: () -> Unit,
-    onOpenDrawer: () -> Unit
+    onOpenDrawer: () -> Unit,
+    onOpenGemini: () -> Unit
 ) {
     Column(
         modifier = Modifier
@@ -455,6 +488,27 @@ private fun HomeTopHeader(
             }
 
             Row(verticalAlignment = Alignment.CenterVertically) {
+                // Gemini AI Top Action Button
+                IconButton(
+                    onClick = onOpenGemini,
+                    modifier = Modifier
+                        .testTag("home_gemini_button")
+                        .size(40.dp)
+                        .clip(CircleShape)
+                        .background(
+                            Brush.linearGradient(listOf(PurpleGlow, PinkAccent))
+                        )
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.AutoAwesome,
+                        contentDescription = "Gemini AI",
+                        tint = Color.White,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+
+                Spacer(modifier = Modifier.width(8.dp))
+
                 DolbyBadge(
                     isDolbyEnabled = isDolbyEnabled,
                     onToggleDolby = onToggleDolby
@@ -706,3 +760,121 @@ private fun SongRowItem(
         }
     }
 }
+
+@Composable
+private fun GeminiFeatureBanner(
+    onOpenGeminiStory: () -> Unit,
+    onOpenGeminiMood: () -> Unit,
+    currentTrackTitle: String?,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp)
+            .clip(RoundedCornerShape(20.dp))
+            .background(
+                Brush.linearGradient(
+                    listOf(
+                        Color(0xFF2C1654).copy(alpha = 0.8f),
+                        Color(0xFF14244B).copy(alpha = 0.85f),
+                        Color(0xFF0F3B4E).copy(alpha = 0.7f)
+                    )
+                )
+            )
+            .border(
+                1.dp,
+                Brush.horizontalGradient(listOf(PurpleGlow, CyanAccent)),
+                RoundedCornerShape(20.dp)
+            )
+            .padding(16.dp)
+    ) {
+        Column {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(34.dp)
+                            .clip(CircleShape)
+                            .background(Brush.linearGradient(listOf(PinkAccent, PurpleGlow))),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.AutoAwesome,
+                            contentDescription = "Gemini AI",
+                            tint = Color.White,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column {
+                        Text(
+                            text = "Gemini AI Music Assistant",
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                        Text(
+                            text = "Song stories, ragas, trivia & custom mood playlists",
+                            fontSize = 11.sp,
+                            color = CyanAccent
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(Color.White.copy(alpha = 0.12f))
+                        .clickable(onClick = onOpenGeminiStory)
+                        .padding(horizontal = 10.dp, vertical = 8.dp)
+                        .testTag("home_gemini_story_chip"),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = if (currentTrackTitle != null) "✨ Analyze \"$currentTrackTitle\"" else "✨ Analyze Current Song",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = Color.White,
+                        maxLines = 1
+                    )
+                }
+
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(
+                            Brush.horizontalGradient(
+                                listOf(PurpleGlow.copy(alpha = 0.6f), PinkAccent.copy(alpha = 0.6f))
+                            )
+                        )
+                        .clickable(onClick = onOpenGeminiMood)
+                        .padding(horizontal = 10.dp, vertical = 8.dp)
+                        .testTag("home_gemini_mood_chip"),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "🎧 Ask Mood DJ",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = Color.White
+                    )
+                }
+            }
+        }
+    }
+}
+

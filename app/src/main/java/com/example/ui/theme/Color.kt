@@ -9,6 +9,7 @@ val GlassBorderHighlight = Color(0x66FFFFFF) // 40% white subtle top border stro
 
 val PurpleGlow = Color(0xFF7C3AED)
 val CyanGlow = Color(0xFF0284C7)
+val CyanAccent = Color(0xFF00E5FF)
 val PinkAccent = Color(0xFFEC4899)
 
 val PrimaryText = Color(0xFFFFFFFF)

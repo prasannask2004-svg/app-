@@ -13,6 +13,7 @@ import com.example.ui.HomeScreen
 import com.example.ui.PlayerViewModel
 import com.example.ui.ProfileScreen
 import com.example.ui.theme.GlassTheme
+import com.example.util.configureAppCheck
 
 class MainActivity : ComponentActivity() {
 
@@ -20,6 +21,9 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Configure Firebase App Check with launch intent before any UI or Firebase operations
+        configureAppCheck(this, intent)
+
         enableEdgeToEdge()
         setContent {
             GlassTheme {

@@ -17,9 +17,14 @@ import com.example.model.CustomPlaylist
 import com.example.model.MediaAlbum
 import com.example.model.MediaType
 import com.example.model.MediaTrack
+import com.example.model.GeminiAiState
+import com.example.model.GeminiAiTab
 import com.example.model.RepeatMode
 import com.example.model.UserProfile
+import com.google.firebase.Firebase
+import com.google.firebase.ai.ai
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -27,6 +32,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeout
+import java.util.concurrent.CancellationException
 import kotlin.random.Random
 
 data class PlayerUiState(
@@ -58,7 +65,11 @@ data class PlayerUiState(
     val searchQuery: String = "",
     val selectedFilter: String = "ALL",
     val selectedHomeLanguage: String = "ALL",
-    val selectedArtistId: String? = null
+    val selectedArtistId: String? = null,
+    val isGeminiModalOpen: Boolean = false,
+    val geminiAiState: GeminiAiState = GeminiAiState.Idle,
+    val geminiPromptText: String = "",
+    val geminiActiveTab: GeminiAiTab = GeminiAiTab.SONG_STORY
 )
 
 class PlayerViewModel(application: Application) : AndroidViewModel(application) {
@@ -73,6 +84,13 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
     private var isMediaPlayerPrepared: Boolean = false
     private var progressJob: Job? = null
     private var sleepTimerJob: Job? = null
+    private var geminiJob: Job? = null
+    private var lastGeminiPrompt: String? = null
+
+    // Lazy initialization per Firebase AI Logic guidelines
+    private val geminiModel by lazy {
+        Firebase.ai.generativeModel("gemini-3.8-flash")
+    }
 
     init {
         val initialTracks = repository.sampleTracks
@@ -496,6 +514,137 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
 
     fun setSelectedHomeLanguage(language: String) {
         _uiState.update { it.copy(selectedHomeLanguage = language, selectedFilter = language) }
+    }
+
+    fun openGeminiModal(tab: GeminiAiTab = GeminiAiTab.SONG_STORY) {
+        _uiState.update {
+            it.copy(
+                isGeminiModalOpen = true,
+                geminiActiveTab = tab
+            )
+        }
+        if (_uiState.value.geminiAiState is GeminiAiState.Idle && tab == GeminiAiTab.SONG_STORY) {
+            generateTrackStory(_uiState.value.currentTrack)
+        }
+    }
+
+    fun closeGeminiModal() {
+        _uiState.update { it.copy(isGeminiModalOpen = false) }
+    }
+
+    fun setGeminiActiveTab(tab: GeminiAiTab) {
+        _uiState.update { it.copy(geminiActiveTab = tab) }
+        if (tab == GeminiAiTab.SONG_STORY && (_uiState.value.geminiAiState is GeminiAiState.Idle || _uiState.value.geminiAiState is GeminiAiState.Error)) {
+            generateTrackStory(_uiState.value.currentTrack)
+        }
+    }
+
+    fun setGeminiPromptText(text: String) {
+        _uiState.update { it.copy(geminiPromptText = text) }
+    }
+
+    fun generateTrackStory(track: MediaTrack? = _uiState.value.currentTrack) {
+        val targetTrack = track ?: _uiState.value.currentTrack
+        if (targetTrack == null) {
+            _uiState.update { it.copy(geminiAiState = GeminiAiState.Error("No track currently playing to analyze.")) }
+            return
+        }
+
+        val prompt = """
+            You are an expert Indian and South Indian musicologist, composer critic, and storyteller for the Glass Media Player app.
+            Analyze the following song in depth with rich musical and cultural context:
+            
+            Song Title: "${targetTrack.title}"
+            Artist/Composer: "${targetTrack.artist}"
+            Album/Film: "${targetTrack.album}"
+            Language: "${targetTrack.language}"
+            Genre: "${targetTrack.genre}"
+            Dolby Atmos: ${if (targetTrack.isDolbyAtmosSupported) "Supported" else "Standard"}
+            
+            Provide a beautifully formatted, engaging explanation with these sections:
+            ✨ 1. The Vibe & Emotion: What feelings and atmosphere does this song evoke?
+            🎼 2. Musical & Instrumental Breakdown: The orchestration, instruments (e.g. flute, violin, veena, thavil, synth arpeggios, bassline), rhythm structure.
+            ✍️ 3. Lyrical & Vocal Essence: The core poetic meaning, emotions delivered by the singers, and what makes the vocal melody memorable.
+            🌟 4. Composer & Creative Trivia: Fascinating background about composer ${targetTrack.artist} and their legacy in cinema/music.
+            🎧 5. Spatial Audio / Listening Suggestion: Dolby Atmos/spatial audio tips and ideal setting (e.g. late night, long drive, quiet monsoon evening).
+            
+            Keep the tone passionate, warm, and musically articulate!
+        """.trimIndent()
+
+        lastGeminiPrompt = prompt
+        executeGeminiStream(prompt)
+    }
+
+    fun generateMoodDj(customPrompt: String? = null) {
+        val userPrompt = customPrompt ?: _uiState.value.geminiPromptText
+        if (userPrompt.isBlank()) {
+            _uiState.update { it.copy(geminiAiState = GeminiAiState.Error("Please enter a vibe, mood, or artist prompt.")) }
+            return
+        }
+
+        val prompt = """
+            You are Gemini Music DJ, a brilliant South Indian and global music curator inside Glass Media Player.
+            The user wants curated music recommendations for this request:
+            "$userPrompt"
+            
+            Focus on popular, classic, and trending songs across Tamil, Telugu, Kannada, Malayalam, and Hindi music (featuring masters like A.R. Rahman, Anirudh Ravichander, Ilaiyaraaja, Deva, Santhosh Narayanan, Sirpy, Harris Jayaraj, Sid Sriram, DSP, GV Prakash, etc.).
+            
+            Provide:
+            🎶 Top 5-6 Curated Songs:
+            For each song include:
+            • Track Title & Movie
+            • Composer & Singer(s)
+            • Language & Mood
+            • Why it fits this mood perfectly
+            
+            ✨ Pro DJ Tip: Recommended listening mode (Dolby Atmos / bass boost / acoustic).
+        """.trimIndent()
+
+        lastGeminiPrompt = prompt
+        executeGeminiStream(prompt)
+    }
+
+    fun retryLastGeminiRequest() {
+        val prompt = lastGeminiPrompt
+        if (!prompt.isNullOrBlank()) {
+            executeGeminiStream(prompt)
+        } else {
+            generateTrackStory(_uiState.value.currentTrack)
+        }
+    }
+
+    private fun executeGeminiStream(prompt: String) {
+        geminiJob?.cancel()
+        geminiJob = viewModelScope.launch {
+            _uiState.update { it.copy(geminiAiState = GeminiAiState.Loading) }
+            val accumulated = StringBuilder()
+            try {
+                // Mandated: realistic 30-60s timeout for model inference
+                withTimeout(60_000L) {
+                    geminiModel.generateContentStream(prompt).collect { chunk ->
+                        val text = chunk.text.orEmpty()
+                        accumulated.append(text)
+                        _uiState.update { it.copy(geminiAiState = GeminiAiState.Streaming(accumulated.toString())) }
+                    }
+                }
+
+                if (accumulated.isNotBlank()) {
+                    _uiState.update { it.copy(geminiAiState = GeminiAiState.Success(accumulated.toString())) }
+                } else {
+                    _uiState.update { it.copy(geminiAiState = GeminiAiState.Error("Gemini returned an empty response. Please try again.")) }
+                }
+            } catch (e: TimeoutCancellationException) {
+                Log.e("PlayerViewModel", "Gemini generation timed out", e)
+                _uiState.update { it.copy(geminiAiState = GeminiAiState.Error("Generation timed out after 60 seconds. Please try again.")) }
+            } catch (e: CancellationException) {
+                // ALWAYS re-throw CancellationException to preserve cooperative cancellation
+                throw e
+            } catch (e: Exception) {
+                Log.e("PlayerViewModel", "Gemini generation failed", e)
+                val errorMsg = e.localizedMessage ?: "Failed to generate AI insights."
+                _uiState.update { it.copy(geminiAiState = GeminiAiState.Error(errorMsg)) }
+            }
+        }
     }
 
     private fun handleTrackCompletion() {

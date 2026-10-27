@@ -27,6 +27,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.FavoriteBorder
 import androidx.compose.material.icons.rounded.QueueMusic
@@ -56,9 +57,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import com.example.model.GeminiAiTab
 import com.example.model.MediaType
 import com.example.model.MediaTrack
 import com.example.ui.components.DolbyBadge
+import com.example.ui.components.GeminiModal
 import com.example.ui.components.GlassCard
 import com.example.ui.components.GlowingOrbsBackground
 import com.example.ui.components.PlayerControlsRow
@@ -66,6 +69,7 @@ import com.example.ui.components.PlaylistDrawer
 import com.example.ui.components.SleepTimerModal
 import com.example.ui.components.VideoPlayerView
 import com.example.ui.theme.CosmicDarkSurface
+import com.example.ui.theme.CyanAccent
 import com.example.ui.theme.GlassBorderColor
 import com.example.ui.theme.PinkAccent
 import com.example.ui.theme.PurpleGlow
@@ -84,6 +88,7 @@ fun GlassPlayerScreen(
 
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val sleepSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val geminiSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     Box(
         modifier = modifier
@@ -216,6 +221,22 @@ fun GlassPlayerScreen(
                 remainingSeconds = uiState.sleepTimerRemainingSeconds,
                 onSetTimerMinutes = { mins -> viewModel.setSleepTimer(mins) },
                 onDismiss = { viewModel.toggleSleepModal(false) }
+            )
+        }
+
+        if (uiState.isGeminiModalOpen) {
+            GeminiModal(
+                sheetState = geminiSheetState,
+                activeTab = uiState.geminiActiveTab,
+                aiState = uiState.geminiAiState,
+                currentTrack = uiState.currentTrack,
+                promptText = uiState.geminiPromptText,
+                onTabSelect = { viewModel.setGeminiActiveTab(it) },
+                onPromptChange = { viewModel.setGeminiPromptText(it) },
+                onSendPrompt = { viewModel.generateMoodDj(it) },
+                onRefreshStory = { viewModel.generateTrackStory() },
+                onRetry = { viewModel.retryLastGeminiRequest() },
+                onDismiss = { viewModel.closeGeminiModal() }
             )
         }
     }
